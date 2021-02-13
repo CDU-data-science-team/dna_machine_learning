@@ -1,0 +1,322 @@
+---
+title: "DNA summary"
+author: "Chris Beeley"
+date: "12/02/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(tidyverse)
+library(knitr)
+library(mlr3)
+library(mlr3pipelines)
+library(mlr3learners)
+library(mlr3viz)
+library(mlr3tuning)
+library(paradox)
+library(mlr3filters)
+library(mlr3extralearners)
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+load("dna.rda")
+
+dna <- dna %>% 
+  mutate(ServiceTeamClassification = recode(
+    ServiceTeamClassification,
+    "Adult Community Mental Health Team" = "MH", 
+    "Assertive Outreach Team" = "MH", 
+    "Autistic Spectrum Disorder Service" = "IDD", 
+    "Community Eating Disorder Service (CEDS) for Children and Young People" = "Child", 
+    "Community Mental Health Team - Functional" = "MH", 
+    "Community Mental Health Team - Organic" = "MH", 
+    "Community Team for Learning Disabilities" = "IDD", 
+    "Criminal Justice Liaison and Diversion Service" = "Forensic", 
+    "Crisis Resolution Team/Home Treatment Service" = "MH", 
+    "Day Care Services" = NA_character_, 
+    "Early Intervention in Psychosis Team" = "MH", 
+    "Early Intervention Team for Psychosis" = "MH", 
+    "Eating Disorders/Dietetics Service" = "MH", 
+    "Epilepsy/Neurological Service" = NA_character_, 
+    "Forensic Learning Disability Service" = "Forensic", 
+    "Forensic Mental Health Service" = "Forensic", 
+    "General Psychiatry" = "MH", 
+    "General Psychiatry Service" = "MH", 
+    "Learning Disability Service" = "IDD", 
+    "Looked After Children Service" = "Child", 
+    "Memory Services/Clinic" = NA_character_, 
+    "Neurodevelopment Team" = "IDD", 
+    "Older People Community Mental Health Team" = "MH", 
+    "Other Mental Health Service - in scope of National Tariff Payment System" = "MH", 
+    "Other Mental Health Service - out of scope of National Tariff Payment System" = "MH", 
+    "Other Mental Health Service - out of scope of Payment by Results" = "MH", 
+    "Paediatric Liaison Service" = "Child", 
+    "Peri-Natal Mental Illness Service" = "MH", 
+    "Personality Disorder Service" = "MH", 
+    "Primary Care Mental Health Service" = "MH", 
+    "Prison Psychiatric Inreach Service" = "MH", 
+    "Psychiatric Liaison Service" = "MH", 
+    "Psychological Therapy Service (non IAPT)" = "MH", 
+    "Psychotherapy Service" = "MH", 
+    "Rehabilitation and Recovery Service" = NA_character_, 
+    "Rehabilitation and Recovery Team" = NA_character_, 
+    "Single Point of Access Service" = NA_character_)) %>% 
+  filter(GenderAtAppt %in% c("Female", "Male"),
+         ServiceTeamClassification != "IDD") %>% 
+  filter(!grepl("patient not present", AppointmentType, ignore.case = TRUE)) %>% 
+  filter(!grepl("telephone", AppointmentType, ignore.case = TRUE)) %>% 
+  mutate(AppointmentType = substr(AppointmentType, 1, 6)) %>% 
+  filter(RefToAppDays < 365 + 1.5) %>% 
+  select(
+    AgeatAppointment,
+    ServiceTeamClassification,
+    RefToAppDays,
+    AppointmentType,
+    weekday_name,
+    GenderAtAppt,
+    IMDDecile,
+    Appointment_month_name, 
+    Number_Previous_Appts = `Number of previous DNAed appts in this referral`,
+    Number_Previous_DNA = `Number of previous Seen appts in previous referrals`,
+    DNA = AppointmentContactStatus,
+    RefToAppDays,
+    ClientID
+  ) %>%
+  mutate_if(is.character, as.factor) %>% 
+  na.omit() %>%
+  group_by(ClientID) %>%
+  slice(n()) %>%
+  ungroup() %>%
+  select(-ClientID) %>% 
+  as_tibble(.name_repair = "universal")
+                                              
+```
+
+## Summary of data
+
+```{r}
+
+dna %>% 
+  group_by(DNA) %>% 
+  skimr::skim()
+
+```
+
+## Benchmark algorithms
+
+```{r, results = FALSE}
+
+task_dna = TaskClassif$new(id = "dna", backend = dna, target = "DNA", positive = "DNA")
+
+# load learner and set hyperparameter
+learner <- lrn("classif.ranger", predict_type = "prob")
+
+# train/test split
+train_set <- sample(task_dna$nrow, 0.8 * task_dna$nrow)
+test_set <- setdiff(seq_len(task_dna$nrow), train_set)
+
+# benchmark
+
+learners = list(lrn("classif.log_reg", predict_type = "prob"),
+                lrn("classif.naive_bayes", predict_type = "prob"),
+                lrn("classif.ranger", predict_type = "prob"),
+                lrn("classif.gbm", predict_type = "prob"))
+
+cv5 = rsmp("cv", folds = 3)
+
+design = benchmark_grid(task_dna, learners, cv5)
+
+bmr = benchmark(design, store_models = TRUE)
+
+```
+
+
+```{r, results = "asis"}
+
+bmr$aggregate(measures = msr("classif.auc")) %>% 
+  kable()
+
+autoplot(bmr, type = "roc")
+
+```
+
+## Tune random forest
+
+```{r, results = FALSE}
+
+learner = lrn("classif.ranger", predict_type = "prob")
+
+tune_ps = ParamSet$new(list(
+  ParamInt$new("num.trees", lower = 1000, upper = 1000),
+  ParamInt$new("min.node.size", lower = 1, upper = 15),
+  ParamInt$new("max.depth", lower = 3, upper = 20),
+  ParamInt$new("mtry", lower = 1, upper = ceiling(task_dna$ncol / 2))
+))
+
+hout = rsmp("holdout")
+measure = msr("classif.auc")
+
+evals20 = trm("evals", n_evals = 20)
+
+instance = TuningInstanceSingleCrit$new(
+  task = task_dna,
+  learner = learner,
+  resampling = hout,
+  measure = measure,
+  search_space = tune_ps,
+  terminator = evals20
+)
+
+tuner = tnr("grid_search", resolution = 5)
+
+tuner$optimize(instance)
+
+```
+
+Final AUC was `r instance$result_y`.
+
+```{r, results = "asis"}
+
+tibble(
+  parameter = names(instance$result_learner_param_vals),
+  value = unlist(instance$result_learner_param_vals)
+) %>% 
+  kable()
+
+```
+
+### Results from tuned model
+
+```{r}
+
+learner$param_set$values = instance$result_learner_param_vals
+learner$train(task_dna, row_ids = train_set)
+
+prediction_test <- learner$predict(task_dna, row_ids = test_set)
+
+prediction_test$score(msr("classif.fbeta"))
+prediction_test$score(msr("classif.auc"))
+prediction_test$score(msr("classif.acc"))
+
+prediction_test$set_threshold(.35)
+
+# calculate performance
+prediction_test$confusion %>% 
+  kable()
+
+```
+
+Sorting the predictions into descending order of probability allows us to see the number of predictions that can be made, keeping the accuracy rate at certain thresholds. For example, how many predictions we can make where we are right 50% of the time, how many 40%, etc.
+
+```{r}
+
+prediction_results <- as.data.table(prediction_test) %>% 
+  arrange(desc(prob.DNA))
+
+par(mfrow = c(2, 2))
+
+proportions <- map_dbl(1 : nrow(prediction_results), function(x) {
+  
+  prediction_results %>% 
+    head(x) %>% 
+    count(truth) %>% 
+    mutate(proportion = n / sum(n)) %>% 
+    pull(proportion) %>% 
+    head(1)
+})
+
+fifty_percent <- proportions[proportions > .5]
+
+plot(fifty_percent)
+
+fourty_percent <- proportions[proportions > .4]
+
+plot(fourty_percent)
+
+thirty_percent <- proportions[proportions > .35]
+
+plot(thirty_percent, ylab = "Proportion")
+
+par(mfrow = c(1, 1))
+
+```
+
+### Feature importance
+
+```{r}
+
+learner$param_set$values = list(importance = "impurity")
+
+filter = flt("importance", learner = learner)
+filter$calculate(task_dna)
+
+autoplot(filter) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+```
+
+## Tune GBM
+
+```{r, results = FALSE}
+
+learner = mlr3::lrn("classif.gbm", predict_type = "prob")
+
+tune_ps = ParamSet$new(list(
+  ParamInt$new("interaction.depth", lower = 1, upper = 10),
+  ParamInt$new("n.minobsinnode", lower = 2, upper = 20),
+  ParamFct$new("distribution", c("bernoulli","adaboost"))
+))
+
+hout = rsmp("holdout")
+measure = msr("classif.auc")
+
+evals20 = trm("evals", n_evals = 20)
+
+instance = TuningInstanceSingleCrit$new(
+  task = task_dna,
+  learner = learner,
+  resampling = hout,
+  measure = measure,
+  search_space = tune_ps,
+  terminator = evals20
+)
+
+tuner = tnr("grid_search", resolution = 5)
+
+tuner$optimize(instance)
+
+```
+
+Final AUC was `r instance$result_y`.
+
+```{r, results = "asis"}
+
+tibble(
+  parameter = names(instance$result_learner_param_vals),
+  value = unlist(instance$result_learner_param_vals)
+) %>% 
+  kable()
+
+```
+
+### Results from tuned model
+
+```{r}
+
+learner$param_set$values = instance$result_learner_param_vals
+learner$train(task_dna, row_ids = train_set)
+
+# predict data
+prediction_test <- learner$predict(task_dna, row_ids = test_set)
+
+prediction_test$score(msr("classif.auc"))
+prediction_test$score(msr("classif.fbeta"))
+prediction_test$score(msr("classif.acc"))
+
+prediction_test$set_threshold(.35)
+
+prediction_test$confusion %>% 
+  kable()
+
+```
+
