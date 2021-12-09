@@ -12,7 +12,7 @@ library(readr)       # for importing data
 library(vip)         # for variable importance plots
 
 
- --------------------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------------------
 # Fix the random numbers by setting the seed 
 # This enables the analysis to be reproducible when random numbers are used
 set.seed(123)
