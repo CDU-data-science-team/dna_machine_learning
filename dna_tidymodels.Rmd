@@ -1,0 +1,50 @@
+---
+title: "Tidymodels dna prediction"
+author: "Chris Beeley"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+load(here::here("secret", "dna.rda"))
+
+splits <- rsample::initial_split(dna, prop = 7 / 10, 
+                                 strata = DNA)
+
+train_df <- rsample::training(splits)
+test_df <- rsample::testing(splits)
+
+val_set <- rsample::validation_split(train_df, 
+                                     prop = 0.80)
+
+```
+
+## Simple random forest workflow
+
+```{r}
+
+# train test split
+
+cores <- parallel::detectCores() - 1
+
+rf_mod <- parsnip::rand_forest(mtry = 3, trees = 1000) |> 
+    parsnip::set_engine("ranger", num.threads = cores) |> 
+    parsnip::set_mode("classification") |> 
+    parsnip::fit(DNA ~ ., data = train_df)
+
+test_results <- train_df |>
+  dplyr::bind_cols(
+    predict(rf_mod, new_data = train_df |>
+                dplyr::select(-DNA))
+  ) |> 
+    dplyr::mutate(actual = train_df$DNA)
+
+test_results |> 
+    ggplot2::ggplot(ggplot2::aes(.pred_class, actual)) + 
+    ggplot2::geom_point() + ggplot2::geom_smooth(method = "lm")
+
+```
+
