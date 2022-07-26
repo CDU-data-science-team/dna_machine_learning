@@ -22,7 +22,7 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
 
 load("dna.rda")
 
-dna <- dna %>% 
+dna <- dna |> 
   mutate(ServiceTeamClassification = recode(
     ServiceTeamClassification,
     "Adult Community Mental Health Team" = "MH", 
@@ -61,13 +61,13 @@ dna <- dna %>%
     "Psychotherapy Service" = "MH", 
     "Rehabilitation and Recovery Service" = NA_character_, 
     "Rehabilitation and Recovery Team" = NA_character_, 
-    "Single Point of Access Service" = NA_character_)) %>% 
+    "Single Point of Access Service" = NA_character_)) |> 
   filter(GenderAtAppt %in% c("Female", "Male"),
-         ServiceTeamClassification != "IDD") %>% 
-  filter(!grepl("patient not present", AppointmentType, ignore.case = TRUE)) %>% 
-  filter(!grepl("telephone", AppointmentType, ignore.case = TRUE)) %>% 
-  mutate(AppointmentType = substr(AppointmentType, 1, 6)) %>% 
-  filter(RefToAppDays < 365 + 1.5) %>% 
+         ServiceTeamClassification != "IDD") |> 
+  filter(!grepl("patient not present", AppointmentType, ignore.case = TRUE)) |> 
+  filter(!grepl("telephone", AppointmentType, ignore.case = TRUE)) |> 
+  mutate(AppointmentType = substr(AppointmentType, 1, 6)) |> 
+  filter(RefToAppDays < 365 + 1.5) |> 
   select(
     AgeatAppointment,
     ServiceTeamClassification,
@@ -82,13 +82,13 @@ dna <- dna %>%
     DNA = AppointmentContactStatus,
     RefToAppDays,
     ClientID
-  ) %>%
-  mutate_if(is.character, as.factor) %>% 
-  na.omit() %>%
-  group_by(ClientID) %>%
-  slice(n()) %>%
-  ungroup() %>%
-  select(-ClientID) %>% 
+  ) |>
+  mutate_if(is.character, as.factor) |> 
+  na.omit() |>
+  group_by(ClientID) |>
+  slice(n()) |>
+  ungroup() |>
+  select(-ClientID) |> 
   as_tibble(.name_repair = "universal")
                                               
 ```
@@ -97,8 +97,8 @@ dna <- dna %>%
 
 ```{r}
 
-dna %>% 
-  group_by(DNA) %>% 
+dna |> 
+  dplyr::group_by(DNA)  |>  
   skimr::skim()
 
 ```
@@ -134,7 +134,7 @@ bmr = benchmark(design, store_models = TRUE)
 
 ```{r, results = "asis"}
 
-bmr$aggregate(measures = msr("classif.auc")) %>% 
+bmr$aggregate(measures = msr("classif.auc")) |> 
   kable()
 
 autoplot(bmr, type = "roc")
@@ -181,7 +181,7 @@ Final AUC was `r instance$result_y`.
 tibble(
   parameter = names(instance$result_learner_param_vals),
   value = unlist(instance$result_learner_param_vals)
-) %>% 
+) |> 
   kable()
 
 ```
@@ -202,7 +202,7 @@ prediction_test$score(msr("classif.acc"))
 prediction_test$set_threshold(.35)
 
 # calculate performance
-prediction_test$confusion %>% 
+prediction_test$confusion |> 
   kable()
 
 ```
@@ -211,18 +211,18 @@ Sorting the predictions into descending order of probability allows us to see th
 
 ```{r}
 
-prediction_results <- as.data.table(prediction_test) %>% 
+prediction_results <- as.data.table(prediction_test) |> 
   arrange(desc(prob.DNA))
 
 par(mfrow = c(2, 2))
 
 proportions <- map_dbl(1 : nrow(prediction_results), function(x) {
   
-  prediction_results %>% 
-    head(x) %>% 
-    count(truth) %>% 
-    mutate(proportion = n / sum(n)) %>% 
-    pull(proportion) %>% 
+  prediction_results |> 
+    head(x) |> 
+    count(truth) |> 
+    mutate(proportion = n / sum(n)) |> 
+    pull(proportion) |> 
     head(1)
 })
 
@@ -294,7 +294,7 @@ Final AUC was `r instance$result_y`.
 tibble(
   parameter = names(instance$result_learner_param_vals),
   value = unlist(instance$result_learner_param_vals)
-) %>% 
+) |> 
   kable()
 
 ```
@@ -315,7 +315,7 @@ prediction_test$score(msr("classif.acc"))
 
 prediction_test$set_threshold(.35)
 
-prediction_test$confusion %>% 
+prediction_test$confusion |> 
   kable()
 
 ```
