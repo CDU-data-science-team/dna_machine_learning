@@ -9,6 +9,8 @@ output: html_document
 
 knitr::opts_chunk$set(echo = TRUE)
 
+library(yardstick)
+
 load(here::here("secret", "dna.rda"))
 
 splits <- rsample::initial_split(dna, prop = 7 / 10, 
@@ -31,20 +33,69 @@ val_set <- rsample::validation_split(train_df,
 cores <- parallel::detectCores() - 1
 
 rf_mod <- parsnip::rand_forest(mtry = 3, trees = 1000) |> 
-    parsnip::set_engine("ranger", num.threads = cores) |> 
-    parsnip::set_mode("classification") |> 
-    parsnip::fit(DNA ~ ., data = train_df)
+  parsnip::set_engine("ranger", num.threads = cores) |> 
+  parsnip::set_mode("classification") |> 
+  parsnip::fit(DNA ~ ., data = train_df)
 
 test_results <- train_df |>
   dplyr::bind_cols(
     predict(rf_mod, new_data = train_df |>
-                dplyr::select(-DNA))
+              dplyr::select(-DNA))
   ) |> 
-    dplyr::mutate(actual = train_df$DNA)
+  dplyr::mutate(actual = train_df$DNA)
 
-test_results |> 
-    ggplot2::ggplot(ggplot2::aes(.pred_class, actual)) + 
-    ggplot2::geom_point() + ggplot2::geom_smooth(method = "lm")
+```
+
+## Add CV
+
+```{r}
+
+cv_folds <- rsample::vfold_cv(train_df, 
+                              v = 5) 
+
+dna_recipe <- 
+  recipes::recipe(DNA ~ ., data = train_df) |>
+  recipes::step_novel(all_nominal(), -all_outcomes())
+
+rf_spec <- 
+  parsnip::rand_forest() |> 
+  parsnip::set_engine("ranger", importance = "impurity") |> 
+  parsnip::set_mode("classification")
+
+forest_wflow <- # new workflow object
+  workflows::workflow() |> # use workflow function
+  workflows::add_recipe(dna_recipe) |>
+  workflows::add_model(rf_spec)   # add your model spec
+
+# show object
+forest_wflow
+
+forest_res <- 
+  forest_wflow |>
+  tune::fit_resamples(
+    resamples = cv_folds, 
+    metrics = yardstick::metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = tune::control_resamples(
+      save_pred = TRUE)
+  ) 
+
+forest_res %>%  workflowsets::collect_metrics(summarize = TRUE)
+
+```
+
+## Confusion matrix
+
+```{r}
+
+forest_pred <- 
+  forest_res %>%
+  workflowsets::collect_predictions()
+
+forest_pred %>% 
+  yardstick::conf_mat(DNA, .pred_class) 
 
 ```
 
