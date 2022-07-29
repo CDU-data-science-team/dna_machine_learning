@@ -1,25 +1,31 @@
 Package: dna_machine_learning
 Title: Machine learning prediction of non attendance at healthcare clinics
 Version: 0.0.0.9000
-Authors@R: person('Chris', 'Beeley', email = 'chris.beeley@gmail.com', role = c('cre', 'aut'))
-Description: This package contains a Shiny application and machine learning code 
-  to make predictions about which individuals will fail to attend clinic appointments 
-  and to summarise them in a convenient form
+Authors@R: 
+    person("Chris", "Beeley", , "chris.beeley@gmail.com", role = c("cre", "aut"))
+Description: This package contains a Shiny application and machine
+    learning code to make predictions about which individuals will fail to
+    attend clinic appointments and to summarise them in a convenient form
 License: What license is it under?
 Imports: 
     config (>= 0.3.1),
     golem (>= 0.3.0),
-    shiny (>= 1.6.0),
-    processx,
-    attempt,
-    DT,
-    glue,
-    htmltools
-Encoding: UTF-8
-LazyData: true
-RoxygenNote: 6.1.1
+    shiny (>= 1.6.0)
 Suggests: 
-    testthat (>= 3.0.0),
-    spelling
+    dplyr,
+    here,
+    knitr,
+    parallel,
+    parsnip,
+    recipes,
+    rmarkdown,
+    rsample,
+    tune,
+    workflows,
+    workflowsets,
+    yardstick
 Config/testthat/edition: 3
+Encoding: UTF-8
 Language: en-US
+LazyData: true
+RoxygenNote: 7.2.1
